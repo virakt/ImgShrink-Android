@@ -1,0 +1,83 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+        
+    - name: Install dependencies
+      run: |
+        go mod download
+        go mod verify
+        
+    - name: Install fyne-cross
+      run: go install github.com/fyne-io/fyne-cross@latest
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Build Android APK (ARM64)
+      run: |
+        fyne-cross android -arch=arm64 -app-id=com.virakt.imgshrink -release
+      continue-on-error: true
+      
+    - name: Build Android APK (AMD64)
+      run: |
+        fyne-cross android -arch=amd64 -app-id=com.virakt.imgshrink -release
+      continue-on-error: true
+      
+    - name: List build artifacts
+      run: |
+        echo "=== Build artifacts ==="
+        find fyne-cross -name "*.apk" -o -name "*.aab" || echo "No APK/AAB files found"
+        ls -lah fyne-cross/ || echo "fyne-cross directory not found"
+        
+    - name: Upload ARM64 APK
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: imgshrink-arm64
+        path: |
+          fyne-cross/dist/android-arm64/*.apk
+          fyne-cross/dist/android-arm64/*.aab
+        if-no-files-found: warn
+        
+    - name: Upload AMD64 APK
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: imgshrink-amd64
+        path: |
+          fyne-cross/dist/android-amd64/*.apk
+          fyne-cross/dist/android-amd64/*.aab
+        if-no-files-found: warn
+        
+    - name: Create Release
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v1.0.${{ github.run_number }}
+        name: Release v1.0.${{ github.run_number }}
+        draft: false
+        prerelease: false
+        files: |
+          fyne-cross/dist/android-arm64/*.apk
+          fyne-cross/dist/android-amd64/*.apk
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
