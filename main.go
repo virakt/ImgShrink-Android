@@ -172,7 +172,26 @@ func (app *ImgShrinkApp) makeUI() fyne.CanvasObject {
 		app.qualitySlider,
 	)
 
-	// Resize mode selection
+	// Resize slider (for percentage mode) - CREATE FIRST
+	app.resizeLabel = widget.NewLabel("Resize: 100%")
+	app.resizeSlider = widget.NewSlider(10, 100)
+	app.resizeSlider.Value = 100
+	app.resizeSlider.Step = 5
+	app.resizeSlider.OnChanged = func(value float64) {
+		app.resizeLabel.SetText(fmt.Sprintf("Resize: %.0f%%", value))
+	}
+	app.resizeSlider.Hide()
+
+	// Dimension entries (for custom dimensions mode) - CREATE SECOND
+	app.widthEntry = widget.NewEntry()
+	app.widthEntry.SetPlaceHolder("Width (px)")
+	app.widthEntry.Hide()
+
+	app.heightEntry = widget.NewEntry()
+	app.heightEntry.SetPlaceHolder("Height (px)")
+	app.heightEntry.Hide()
+
+	// Resize mode selection - CREATE LAST (after widgets it references)
 	app.resizeMode = widget.NewRadioGroup([]string{"Percentage", "Dimensions", "None"}, func(value string) {
 		switch value {
 		case "Percentage":
@@ -189,27 +208,8 @@ func (app *ImgShrinkApp) makeUI() fyne.CanvasObject {
 			app.heightEntry.Hide()
 		}
 	})
-	app.resizeMode.SetSelected("None")
 	app.resizeMode.Horizontal = true
-
-	// Resize slider (for percentage mode)
-	app.resizeLabel = widget.NewLabel("Resize: 100%")
-	app.resizeSlider = widget.NewSlider(10, 100)
-	app.resizeSlider.Value = 100
-	app.resizeSlider.Step = 5
-	app.resizeSlider.OnChanged = func(value float64) {
-		app.resizeLabel.SetText(fmt.Sprintf("Resize: %.0f%%", value))
-	}
-	app.resizeSlider.Hide()
-
-	// Dimension entries (for custom dimensions mode)
-	app.widthEntry = widget.NewEntry()
-	app.widthEntry.SetPlaceHolder("Width (px)")
-	app.widthEntry.Hide()
-
-	app.heightEntry = widget.NewEntry()
-	app.heightEntry.SetPlaceHolder("Height (px)")
-	app.heightEntry.Hide()
+	app.resizeMode.SetSelected("None")
 
 	resizeControl := container.NewVBox(
 		widget.NewLabel("Resize Options:"),
