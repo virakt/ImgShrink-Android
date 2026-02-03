@@ -50,16 +50,16 @@ android: android-arm64 android-amd64
 android-release: check-fyne-cross
 	@echo "Building and signing Android APKs..."
 	@read -p "Keystore path: " KEYSTORE && \
-	read -p "Key alias: " KEYALIAS && \
+	read -p "Key name (alias): " KEYNAME && \
 	read -s -p "Keystore password: " KEYSTORE_PASS && echo && \
 	read -s -p "Key password: " KEY_PASS && echo && \
 	fyne-cross android -arch=arm64,amd64 \
 		-app-id=com.imgshrink.mobile \
 		-release \
 		-keystore $$KEYSTORE \
-		-keyalias $$KEYALIAS \
-		-storepass $$KEYSTORE_PASS \
-		-keypass $$KEY_PASS \
+		-key-name $$KEYNAME \
+		-keystore-pass $$KEYSTORE_PASS \
+		-key-pass $$KEY_PASS \
 		-icon Icon.png
 	@echo ""
 	@echo "✓ Signed APKs built:"

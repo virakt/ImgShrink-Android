@@ -183,9 +183,9 @@ fyne-cross android -arch=arm64,amd64 \
   -app-id=com.imgshrink.mobile \
   -release \
   -keystore imgshrink.keystore \
-  -keyalias imgshrink \
-  -storepass YOUR_PASSWORD \
-  -keypass YOUR_PASSWORD \
+  -key-name imgshrink \
+  -keystore-pass YOUR_PASSWORD \
+  -key-pass YOUR_PASSWORD \
   -icon Icon.png
 ```
 

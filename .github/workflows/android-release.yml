@@ -43,9 +43,9 @@ jobs:
           -app-id=com.imgshrink.mobile \
           -release \
           -keystore release.keystore \
-          -keyalias "$KEY_ALIAS" \
-          -keypass "$KEYSTORE_PASSWORD" \
-          -storepass "$KEYSTORE_PASSWORD"
+          -key-name "$KEY_ALIAS" \
+          -keystore-pass "$KEYSTORE_PASSWORD" \
+          -key-pass "$KEYSTORE_PASSWORD"
 
     - name: Get version
       id: version
