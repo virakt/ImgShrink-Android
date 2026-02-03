@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"image/color"
+	"io"
+	"os"
 	"path/filepath"
 
 	"fyne.io/fyne/v2"
@@ -293,28 +295,80 @@ func (app *ImgShrinkApp) selectImage() {
 		if reader == nil {
 			return
 		}
-		defer reader.Close()
 
 		uri := reader.URI()
-		path := uri.Path()
+
+		// Get file extension from URI
+		uriStr := uri.String()
+		ext := filepath.Ext(uriStr)
+
+		// Create temp file path first
+		tmpDir := os.TempDir()
+		tmpPath := filepath.Join(tmpDir, "imgshrink_temp"+ext)
+
+		// Write data to temp file directly from reader
+		tmpF, err := os.Create(tmpPath)
+		if err != nil {
+			reader.Close()
+			dialog.ShowError(fmt.Errorf("failed to create temp file: %w", err), app.window)
+			return
+		}
+
+		_, err = io.Copy(tmpF, reader)
+		tmpF.Close()
+		reader.Close()
+
+		if err != nil {
+			os.Remove(tmpPath)
+			dialog.ShowError(fmt.Errorf("failed to write temp file: %w", err), app.window)
+			return
+		}
+
+		// Detect extension from content if not available
+		if ext == "" {
+			fileData, err := os.ReadFile(tmpPath)
+			if err == nil && len(fileData) > 7 {
+				// Check for JPEG magic bytes
+				if fileData[0] == 0xFF && fileData[1] == 0xD8 {
+					ext = ".jpg"
+					newPath := filepath.Join(tmpDir, "imgshrink_temp.jpg")
+					os.Rename(tmpPath, newPath)
+					tmpPath = newPath
+				} else if fileData[0] == 0x89 && fileData[1] == 0x50 &&
+					fileData[2] == 0x4E && fileData[3] == 0x47 {
+					ext = ".png"
+					newPath := filepath.Join(tmpDir, "imgshrink_temp.png")
+					os.Rename(tmpPath, newPath)
+					tmpPath = newPath
+				}
+			}
+		}
+
+		if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
+			os.Remove(tmpPath)
+			dialog.ShowError(fmt.Errorf("unsupported file type. Please select a JPEG or PNG image"), app.window)
+			return
+		}
 
 		// Validate image format
-		format, err := compressor.GetImageFormat(path)
+		format, err := compressor.GetImageFormat(tmpPath)
 		if err != nil {
+			os.Remove(tmpPath)
 			dialog.ShowError(fmt.Errorf("unsupported image format"), app.window)
 			return
 		}
 
 		// Get image info
-		info, err := compressor.GetImageInfo(path)
+		info, err := compressor.GetImageInfo(tmpPath)
 		if err != nil {
+			os.Remove(tmpPath)
 			dialog.ShowError(err, app.window)
 			return
 		}
 
 		// Update UI
-		app.selectedFile = path
-		app.fileLabel.SetText(filepath.Base(path))
+		app.selectedFile = tmpPath
+		app.fileLabel.SetText(uri.Name())
 		app.sizeLabel.SetText(fmt.Sprintf("%s • %dx%d • %s",
 			compressor.FormatBytes(info.Size),
 			info.Width,
@@ -322,11 +376,9 @@ func (app *ImgShrinkApp) selectImage() {
 			format,
 		))
 
-		// Load preview
-		img := canvas.NewImageFromURI(uri)
-		img.FillMode = canvas.ImageFillContain
+		// Load preview from temp file
+		app.imagePreview.File = tmpPath
 		app.imagePreview.Resource = nil
-		app.imagePreview.File = path
 		app.imagePreview.Refresh()
 
 		app.compressBtn.Enable()
@@ -345,8 +397,10 @@ func (app *ImgShrinkApp) selectOutputLocation() {
 			return
 		}
 
-		app.outputPath = uri.Path()
-		app.outputLabel.SetText(fmt.Sprintf("Output: %s", filepath.Base(app.outputPath)))
+		// On Android, use temp directory as we can't write to arbitrary locations
+		// The compressed file will be saved to temp and can be shared
+		app.outputPath = os.TempDir()
+		app.outputLabel.SetText("Output: App temp directory")
 	}, app.window)
 }
 
