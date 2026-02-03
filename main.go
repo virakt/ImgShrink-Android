@@ -25,7 +25,7 @@ type glassyTheme struct{}
 var (
 	// Pitch black with moonish blue tints
 	bgColor        = color.NRGBA{R: 10, G: 12, B: 18, A: 255}    // Almost black with blue tint
-	surfaceColor   = color.NRGBA{R: 20, G: 25, B: 35, A: 230}    // Dark surface with transparency
+	surfaceColor   = color.NRGBA{R: 20, G: 25, B: 35, A: 255}    // Dark surface with transparency
 	primaryColor   = color.NRGBA{R: 100, G: 120, B: 180, A: 255} // Moonish blue
 	accentColor    = color.NRGBA{R: 140, G: 160, B: 220, A: 255} // Lighter blue
 	textColor      = color.NRGBA{R: 240, G: 245, B: 255, A: 255} // Off-white
@@ -72,13 +72,13 @@ func (g glassyTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
 func (g glassyTheme) Size(name fyne.ThemeSizeName) float32 {
 	switch name {
 	case theme.SizeNamePadding:
-		return 6
+		return 8
 	case theme.SizeNameInlineIcon:
 		return 20
 	case theme.SizeNameScrollBar:
-		return 0 // Hide scrollbar
+		return 6
 	case theme.SizeNameScrollBarSmall:
-		return 0 // Hide scrollbar
+		return 4
 	default:
 		return theme.DefaultTheme().Size(name)
 	}
@@ -134,28 +134,23 @@ func (app *ImgShrinkApp) makeUI() fyne.CanvasObject {
 	// Header - compact
 	title := widget.NewLabelWithStyle("ImgShrink", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 
-	// Image preview - takes 50% of screen space
+	// Image preview - fixed size
 	app.imagePreview = canvas.NewImageFromResource(theme.FileImageIcon())
 	app.imagePreview.FillMode = canvas.ImageFillContain
-	app.imagePreview.SetMinSize(fyne.NewSize(360, 360))
-
-	previewCard := container.NewStack(
-		canvas.NewRectangle(surfaceColor),
-		container.NewPadded(app.imagePreview),
-	)
+	app.imagePreview.SetMinSize(fyne.NewSize(300, 300))
 
 	// File info - single line compact
 	app.fileLabel = widget.NewLabel("No image selected")
 	app.fileLabel.Wrapping = fyne.TextTruncate
 	app.sizeLabel = widget.NewLabel("")
 
-	// Select button - directly opens file picker
+	// Select button
 	selectBtn := widget.NewButton("Select Image", func() {
 		app.selectImage()
 	})
 	selectBtn.Importance = widget.HighImportance
 
-	// Quality slider - compact
+	// Quality controls
 	app.qualityLabel = widget.NewLabel("Quality: 85%")
 	app.qualitySlider = widget.NewSlider(1, 100)
 	app.qualitySlider.Value = 85
@@ -164,7 +159,7 @@ func (app *ImgShrinkApp) makeUI() fyne.CanvasObject {
 		app.qualityLabel.SetText(fmt.Sprintf("Quality: %.0f%%", value))
 	}
 
-	// Resize controls - compact
+	// Resize controls
 	app.resizeLabel = widget.NewLabel("Resize: 100%")
 	app.resizeSlider = widget.NewSlider(10, 100)
 	app.resizeSlider.Value = 100
@@ -175,11 +170,11 @@ func (app *ImgShrinkApp) makeUI() fyne.CanvasObject {
 	app.resizeSlider.Hide()
 
 	app.widthEntry = widget.NewEntry()
-	app.widthEntry.SetPlaceHolder("W")
+	app.widthEntry.SetPlaceHolder("Width")
 	app.widthEntry.Hide()
 
 	app.heightEntry = widget.NewEntry()
-	app.heightEntry.SetPlaceHolder("H")
+	app.heightEntry.SetPlaceHolder("Height")
 	app.heightEntry.Hide()
 
 	app.resizeMode = widget.NewRadioGroup([]string{"%", "WxH", "None"}, func(value string) {
@@ -201,43 +196,15 @@ func (app *ImgShrinkApp) makeUI() fyne.CanvasObject {
 	app.resizeMode.Horizontal = true
 	app.resizeMode.SetSelected("None")
 
-	// Output controls - minimal design
-	app.outputFilenameEntry = widget.NewEntry()
-	app.outputFilenameEntry.SetPlaceHolder("filename")
-
-	app.outputExtGroup = widget.NewRadioGroup([]string{".jpg", ".jpeg", ".png"}, func(value string) {
+	// Output format
+	app.outputExtGroup = widget.NewRadioGroup([]string{".jpg", ".png"}, func(value string) {
 		app.outputExt = value
 	})
 	app.outputExtGroup.Horizontal = true
 	app.outputExtGroup.SetSelected(".jpg")
 	app.outputExt = ".jpg"
 
-	// Compact controls card with proper margins
-	controlsCard := container.NewStack(
-		canvas.NewRectangle(surfaceColor),
-		container.NewPadded(
-			container.NewVBox(
-				widget.NewLabel("Quality"),
-				app.qualitySlider,
-				app.qualityLabel,
-
-				widget.NewSeparator(),
-
-				widget.NewLabel("Resize"),
-				app.resizeMode,
-				app.resizeSlider,
-				app.resizeLabel,
-				container.NewGridWithColumns(2, app.widthEntry, app.heightEntry),
-
-				widget.NewSeparator(),
-
-				widget.NewLabel("Output Format"),
-				app.outputExtGroup,
-			),
-		),
-	)
-
-	// Compress button - full width and much larger
+	// Compress button
 	app.compressBtn = widget.NewButton("Compress Image", func() {
 		app.compressImage()
 	})
@@ -248,41 +215,54 @@ func (app *ImgShrinkApp) makeUI() fyne.CanvasObject {
 	app.progressBar = widget.NewProgressBar()
 	app.progressBar.Hide()
 
-	app.statusLabel = widget.NewLabel("")
-	app.statusLabel.Wrapping = fyne.TextWrapWord
-	app.statusLabel.Alignment = fyne.TextAlignCenter
-	app.statusLabel.Hide() // Hide by default, only show in dialogs
-
-	// Create a large button with spacer to make it bigger
-	btnSpacer := canvas.NewRectangle(color.Transparent)
-	btnSpacer.SetMinSize(fyne.NewSize(0, 80))
-	largeBtn := container.NewStack(
-		btnSpacer,
-		container.NewPadded(
-			container.NewPadded(app.compressBtn),
-		),
-	)
-
-	// Main layout with proper spacing - no scroll needed
+	// Main layout - clean and simple
 	content := container.NewVBox(
+		canvas.NewRectangle(color.Transparent),
 		title,
 		widget.NewSeparator(),
-		previewCard,
+		container.NewPadded(app.imagePreview),
 		widget.NewSeparator(),
-		container.NewGridWithColumns(2, app.fileLabel, app.sizeLabel),
+		container.NewGridWithColumns(2,
+			container.NewHBox(
+				widget.NewIcon(theme.FileImageIcon()),
+				app.fileLabel,
+			),
+			app.sizeLabel,
+		),
 		selectBtn,
 		widget.NewSeparator(),
-		controlsCard,
+		container.NewVBox(
+			widget.NewLabel("Quality"),
+			app.qualitySlider,
+			app.qualityLabel,
+		),
 		widget.NewSeparator(),
-		largeBtn,
+		container.NewVBox(
+			widget.NewLabel("Resize Mode"),
+			app.resizeMode,
+			app.resizeSlider,
+			app.resizeLabel,
+			container.NewGridWithColumns(2, app.widthEntry, app.heightEntry),
+		),
+		widget.NewSeparator(),
+		container.NewVBox(
+			widget.NewLabel("Output Format"),
+			app.outputExtGroup,
+		),
+		widget.NewSeparator(),
+		app.compressBtn,
 		app.progressBar,
 	)
 
-	return content
+	// Make scrollable for Linux compatibility
+	scrollContainer := container.NewScroll(content)
+	scrollContainer.SetMinSize(fyne.NewSize(400, 600))
+
+	return scrollContainer
 }
 
 func (app *ImgShrinkApp) selectImage() {
-	// Directly open file picker
+	// Open file picker
 	dialog.ShowFileOpen(func(reader fyne.URIReadCloser, err error) {
 		if err != nil {
 			dialog.ShowError(err, app.window)
