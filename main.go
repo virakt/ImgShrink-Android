@@ -6,12 +6,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -71,13 +73,13 @@ func (g glassyTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
 func (g glassyTheme) Size(name fyne.ThemeSizeName) float32 {
 	switch name {
 	case theme.SizeNamePadding:
-		return 8
+		return 4
 	case theme.SizeNameInlineIcon:
-		return 24
+		return 20
 	case theme.SizeNameScrollBar:
-		return 12
+		return 0 // Hide scrollbar
 	case theme.SizeNameScrollBarSmall:
-		return 6
+		return 0 // Hide scrollbar
 	default:
 		return theme.DefaultTheme().Size(name)
 	}
@@ -87,7 +89,7 @@ func (g glassyTheme) Size(name fyne.ThemeSizeName) float32 {
 type ImgShrinkApp struct {
 	window         fyne.Window
 	selectedFile   string
-	outputPath     string
+	outputURI      fyne.URI
 	imagePreview   *canvas.Image
 	fileLabel      *widget.Label
 	sizeLabel      *widget.Label
@@ -111,7 +113,7 @@ func main() {
 	a.Settings().SetTheme(&glassyTheme{})
 
 	w := a.NewWindow("ImgShrink")
-	w.Resize(fyne.NewSize(400, 700))
+	w.Resize(fyne.NewSize(400, 650))
 
 	imgApp := &ImgShrinkApp{
 		window:         w,
@@ -124,35 +126,23 @@ func main() {
 }
 
 func (app *ImgShrinkApp) makeUI() fyne.CanvasObject {
-	// Header
+	// Compact header
 	title := widget.NewLabelWithStyle("ImgShrink", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-	subtitle := widget.NewLabelWithStyle("Compress your images", fyne.TextAlignCenter, fyne.TextStyle{})
-	subtitle.TextStyle.Italic = true
 
-	header := container.NewVBox(
-		container.NewPadded(title),
-		subtitle,
-	)
-
-	// Image preview
+	// Compact image preview
 	app.imagePreview = canvas.NewImageFromResource(theme.FileImageIcon())
 	app.imagePreview.FillMode = canvas.ImageFillContain
-	app.imagePreview.SetMinSize(fyne.NewSize(300, 300))
+	app.imagePreview.SetMinSize(fyne.NewSize(200, 150))
 
 	previewCard := container.NewStack(
 		canvas.NewRectangle(surfaceColor),
 		container.NewPadded(app.imagePreview),
 	)
 
-	// File info
+	// Compact file info
 	app.fileLabel = widget.NewLabel("No image selected")
-	app.fileLabel.Wrapping = fyne.TextWrapWord
+	app.fileLabel.Wrapping = fyne.TextTruncate
 	app.sizeLabel = widget.NewLabel("")
-
-	fileInfo := container.NewVBox(
-		app.fileLabel,
-		app.sizeLabel,
-	)
 
 	// Select button
 	selectBtn := widget.NewButton("Select Image", func() {
@@ -160,7 +150,7 @@ func (app *ImgShrinkApp) makeUI() fyne.CanvasObject {
 	})
 	selectBtn.Importance = widget.HighImportance
 
-	// Quality slider
+	// Compact quality slider
 	app.qualityLabel = widget.NewLabel("Quality: 85%")
 	app.qualitySlider = widget.NewSlider(1, 100)
 	app.qualitySlider.Value = 85
@@ -169,38 +159,31 @@ func (app *ImgShrinkApp) makeUI() fyne.CanvasObject {
 		app.qualityLabel.SetText(fmt.Sprintf("Quality: %.0f%%", value))
 	}
 
-	qualityControl := container.NewVBox(
-		app.qualityLabel,
-		app.qualitySlider,
-	)
-
-	// Resize slider (for percentage mode) - CREATE FIRST
+	// Compact resize controls
 	app.resizeLabel = widget.NewLabel("Resize: 100%")
 	app.resizeSlider = widget.NewSlider(10, 100)
 	app.resizeSlider.Value = 100
-	app.resizeSlider.Step = 5
+	app.resizeSlider.Step = 10
 	app.resizeSlider.OnChanged = func(value float64) {
 		app.resizeLabel.SetText(fmt.Sprintf("Resize: %.0f%%", value))
 	}
 	app.resizeSlider.Hide()
 
-	// Dimension entries (for custom dimensions mode) - CREATE SECOND
 	app.widthEntry = widget.NewEntry()
-	app.widthEntry.SetPlaceHolder("Width (px)")
+	app.widthEntry.SetPlaceHolder("W")
 	app.widthEntry.Hide()
 
 	app.heightEntry = widget.NewEntry()
-	app.heightEntry.SetPlaceHolder("Height (px)")
+	app.heightEntry.SetPlaceHolder("H")
 	app.heightEntry.Hide()
 
-	// Resize mode selection - CREATE LAST (after widgets it references)
-	app.resizeMode = widget.NewRadioGroup([]string{"Percentage", "Dimensions", "None"}, func(value string) {
+	app.resizeMode = widget.NewRadioGroup([]string{"%", "WxH", "None"}, func(value string) {
 		switch value {
-		case "Percentage":
+		case "%":
 			app.resizeSlider.Show()
 			app.widthEntry.Hide()
 			app.heightEntry.Hide()
-		case "Dimensions":
+		case "WxH":
 			app.resizeSlider.Hide()
 			app.widthEntry.Show()
 			app.heightEntry.Show()
@@ -213,41 +196,30 @@ func (app *ImgShrinkApp) makeUI() fyne.CanvasObject {
 	app.resizeMode.Horizontal = true
 	app.resizeMode.SetSelected("None")
 
-	resizeControl := container.NewVBox(
-		widget.NewLabel("Resize Options:"),
-		app.resizeMode,
-		app.resizeLabel,
-		app.resizeSlider,
-		container.NewGridWithColumns(2,
-			app.widthEntry,
-			app.heightEntry,
-		),
-	)
-
 	// Output location
-	app.outputLabel = widget.NewLabel("Output: Same as input")
-	app.outputLabel.Wrapping = fyne.TextWrapWord
+	app.outputLabel = widget.NewLabel("Output: Choose location")
+	app.outputLabel.Wrapping = fyne.TextTruncate
 
-	selectOutputBtn := widget.NewButton("Choose Output Location", func() {
+	selectOutputBtn := widget.NewButton("Output Location", func() {
 		app.selectOutputLocation()
 	})
 
-	outputControl := container.NewVBox(
-		widget.NewLabel("Output Location:"),
-		app.outputLabel,
-		selectOutputBtn,
-	)
-
-	// Controls card
+	// Compact controls card
 	controlsCard := container.NewStack(
 		canvas.NewRectangle(surfaceColor),
 		container.NewPadded(
 			container.NewVBox(
-				qualityControl,
-				widget.NewSeparator(),
-				resizeControl,
-				widget.NewSeparator(),
-				outputControl,
+				app.qualityLabel,
+				app.qualitySlider,
+				container.NewGridWithColumns(3,
+					widget.NewLabel("Resize:"),
+					app.resizeMode,
+				),
+				app.resizeLabel,
+				app.resizeSlider,
+				container.NewGridWithColumns(2, app.widthEntry, app.heightEntry),
+				selectOutputBtn,
+				app.outputLabel,
 			),
 		),
 	)
@@ -267,23 +239,20 @@ func (app *ImgShrinkApp) makeUI() fyne.CanvasObject {
 	app.statusLabel.Wrapping = fyne.TextWrapWord
 	app.statusLabel.Alignment = fyne.TextAlignCenter
 
-	// Main layout
+	// Compact main layout - no scrolling needed
 	content := container.NewVBox(
-		header,
-		widget.NewSeparator(),
+		title,
 		previewCard,
-		fileInfo,
+		app.fileLabel,
+		app.sizeLabel,
 		selectBtn,
-		widget.NewSeparator(),
 		controlsCard,
 		app.compressBtn,
 		app.progressBar,
 		app.statusLabel,
 	)
 
-	return container.NewPadded(
-		container.NewVScroll(content),
-	)
+	return container.NewPadded(content)
 }
 
 func (app *ImgShrinkApp) selectImage() {
@@ -388,19 +357,19 @@ func (app *ImgShrinkApp) selectImage() {
 }
 
 func (app *ImgShrinkApp) selectOutputLocation() {
-	dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
+	// Use file save dialog to let user choose where to save
+	dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
 		if err != nil {
 			dialog.ShowError(err, app.window)
 			return
 		}
-		if uri == nil {
+		if writer == nil {
 			return
 		}
+		writer.Close()
 
-		// On Android, use temp directory as we can't write to arbitrary locations
-		// The compressed file will be saved to temp and can be shared
-		app.outputPath = os.TempDir()
-		app.outputLabel.SetText("Output: App temp directory")
+		app.outputURI = writer.URI()
+		app.outputLabel.SetText(fmt.Sprintf("Output: %s", writer.URI().Name()))
 	}, app.window)
 }
 
@@ -418,18 +387,16 @@ func (app *ImgShrinkApp) compressImage() {
 		options := compressor.DefaultOptions()
 		options.Quality = int(app.qualitySlider.Value)
 
-		// Set output directory if selected
-		if app.outputPath != "" {
-			options.OutputDir = app.outputPath
-		}
+		// Use temp directory for compression
+		options.OutputDir = os.TempDir()
 
 		// Handle resize options based on mode
 		switch app.resizeMode.Selected {
-		case "Percentage":
+		case "%":
 			if app.resizeSlider.Value < 100 {
 				options.ResizePercent = app.resizeSlider.Value
 			}
-		case "Dimensions":
+		case "WxH":
 			// Parse width and height
 			if app.widthEntry.Text != "" {
 				fmt.Sscanf(app.widthEntry.Text, "%d", &options.ResizeWidth)
@@ -466,15 +433,44 @@ func (app *ImgShrinkApp) compressImage() {
 			return
 		}
 
-		successMsg := fmt.Sprintf("✓ Compressed successfully!\n"+
+		// If user selected output location, copy file there
+		var finalPath string
+		if app.outputURI != nil {
+			// On Android, write to user-selected URI
+			if runtime.GOOS == "android" {
+				writer, err := storage.Writer(app.outputURI)
+				if err == nil {
+					compressedData, err := os.ReadFile(result.OutputPath)
+					if err == nil {
+						_, err = writer.Write(compressedData)
+						writer.Close()
+						if err == nil {
+							finalPath = app.outputURI.String()
+						}
+					}
+				}
+			} else {
+				// On desktop, use the URI path directly
+				finalPath = app.outputURI.Path()
+				os.Rename(result.OutputPath, finalPath)
+			}
+		} else {
+			finalPath = result.OutputPath
+		}
+
+		if finalPath == "" {
+			finalPath = result.OutputPath
+		}
+
+		successMsg := fmt.Sprintf("✓ Success!\n"+
 			"%s → %s\n"+
-			"Saved: %s (%.1f%% reduction)\n"+
-			"Output: %s",
+			"Saved: %s (%.1f%%)\n"+
+			"Location: %s",
 			compressor.FormatBytes(result.InputSize),
 			compressor.FormatBytes(result.OutputSize),
 			compressor.FormatBytes(result.InputSize-result.OutputSize),
 			result.Reduction,
-			result.OutputPath,
+			filepath.Base(finalPath),
 		)
 
 		app.statusLabel.SetText(successMsg)
