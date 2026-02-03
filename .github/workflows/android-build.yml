@@ -3,6 +3,7 @@ name: Build Android APK
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ] # Added: Trigger release on tags like v1.0.0
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -40,9 +41,20 @@ jobs:
         echo "=== Build artifacts ==="
         ls -lh *.apk || echo "No APK files found in root"
         
-    - name: Upload ARM64 APK
+    - name: Upload ARM64 APK (Artifact)
       uses: actions/upload-artifact@v4
       with:
         name: imgshrink-arm64-apk
         path: ImgShrink.apk
         if-no-files-found: error
+
+    # NEW STEP: Create Release and Upload APK
+    - name: Release to GitHub
+      uses: softprops/action-gh-release@v2
+      if: startsWith(github.ref, 'refs/tags/') # Only runs when you push a tag
+      with:
+        files: ImgShrink.apk
+        token: ${{ secrets.GITHUB_TOKEN }}
+        draft: false
+        prerelease: false
+
