@@ -1,100 +1,127 @@
  # Build Instructions
 
+## Quick Start with Makefile (Recommended)
+
+Use the Makefile for easy builds on all platforms:
+
+```bash
+# Show available targets
+make help
+
+# Build Linux binary
+make linux
+
+# Build Android APKs
+make android
+
+# Build everything
+make build-all
+```
+
 ## Prerequisites
 
 1. **Go 1.21+**
-2. **Fyne CLI**: `go install fyne.io/fyne/v2/cmd/fyne@latest`
-3. **Docker** (for Android builds)
-4. **fyne-cross**: `go install github.com/fyne-io/fyne-cross@latest`
+2. **Docker** (for Android builds)
+3. **fyne-cross**: `go install github.com/fyne-io/fyne-cross@latest`
 
-## Desktop Build
+## Desktop Build (Linux)
 
-### Linux
+### Using Makefile
 ```bash
-go build -o imgshrink-mobile
+make linux          # Build with version
+make linux-simple  # Build simple binary
+make run           # Build and run
 ```
 
-### Windows
+### Manual Build
 ```bash
+go build -ldflags="-s -w" -o imgshrink-mobile
+```
+
+### Using Fyne CLI (Cross-platform)
+```bash
+# Windows
 fyne package -os windows -icon Icon.png
-```
 
-### macOS
-```bash
+# macOS
 fyne package -os darwin -icon Icon.png
 ```
 
 ## Android Build
 
-### Using fyne-cross (Recommended)
-
-Build for ARM64 (most modern Android devices):
+### Using Makefile (Recommended)
 ```bash
-fyne-cross android -arch=arm64 -app-id=com.imgshrink.mobile
+# Build ARM64 APK
+make android-arm64
+
+# Build x86_64 APK
+make android-amd64
+
+# Build both architectures
+make android
+
+# Build and sign APKs (requires keystore)
+make android-release
 ```
 
-Build for both ARM64 and x86_64:
+### Manual Build with fyne-cross
 ```bash
-fyne-cross android -arch=arm64,amd64 -app-id=com.imgshrink.mobile
+# Build for ARM64
+fyne-cross android -arch=arm64 -app-id=com.imgshrink.mobile -icon Icon.png
+
+# Build for x86_64
+fyne-cross android -arch=amd64 -app-id=com.imgshrink.mobile -icon Icon.png
+
+# Build for both
+fyne-cross android -arch=arm64,amd64 -app-id=com.imgshrink.mobile -icon Icon.png
 ```
 
-The APK will be generated in the project root directory as `ImgShrink.apk`.
-
-### Using fyne package (Alternative)
-
+### Using Fyne CLI (Alternative)
 ```bash
 fyne package -os android/arm64 -appID com.imgshrink.mobile -icon Icon.png
 ```
 
-**Note**: This requires Android SDK and NDK to be installed locally.
-
 ## Build Optimizations
 
-### Reduce Build Size
-
-1. **Strip debug symbols**:
+### Reduce Binary Size
 ```bash
 go build -ldflags="-s -w" -o imgshrink-mobile
 ```
 
-2. **Use UPX compression** (optional):
+### Use UPX Compression (Optional)
 ```bash
 upx --best --lzma imgshrink-mobile
 ```
 
 ### Faster Builds
-
-1. **Enable Go build cache**:
 ```bash
+# Enable Go build cache
 export GOCACHE=$HOME/.cache/go-build
-```
 
-2. **Use parallel builds**:
-```bash
+# Use parallel builds
 go build -p 4
 ```
-
-3. **For fyne-cross, reuse Docker cache**:
-The cache is automatically stored in `~/.cache/fyne-cross`
 
 ## Build Artifacts
 
 ### Desktop
-- **Linux**: `imgshrink-mobile` (executable)
+- **Linux**: `imgshrink-mobile-VERSION-linux-amd64` (executable)
 - **Windows**: `ImgShrink.exe`
 - **macOS**: `ImgShrink.app`
 
 ### Android
-- **APK**: `ImgShrink.apk` (44MB for ARM64)
-- **Supported architectures**: ARM64-v8a, x86_64
+- **ARM64 APK**: `fyne-cross/dist/android-arm64/ImgShrink.apk`
+- **x86_64 APK**: `fyne-cross/dist/android-amd64/ImgShrink.apk`
+- **Size**: ~44MB for ARM64
 
 ## Troubleshooting
 
 ### Android Build Issues
 
-1. **"No such file or directory" for APK**:
-   - The APK is built in the project root, not in fyne-cross/tmp
-   - Check for `ImgShrink.apk` in the current directory
+1. **fyne-cross not found**:
+   ```bash
+   make check-fyne-cross
+   ```
 
 2. **Docker permission errors**:
    ```bash
@@ -103,8 +130,8 @@ The cache is automatically stored in `~/.cache/fyne-cross`
    ```
 
 3. **Out of memory during build**:
-   - Increase Docker memory limit in Docker Desktop settings
-   - Or build for single architecture at a time
+   - Increase Docker memory limit
+   - Build single architecture: `make android-arm64`
 
 ### Desktop Build Issues
 
@@ -125,36 +152,41 @@ The cache is automatically stored in `~/.cache/fyne-cross`
 
 ### Install on Device
 ```bash
-adb install ImgShrink.apk
+adb install fyne-cross/dist/android-arm64/ImgShrink.apk
 ```
 
 ### Install on Emulator
 ```bash
-adb -e install ImgShrink.apk
+adb -e install fyne-cross/dist/android-arm64/ImgShrink.apk
 ```
 
 ### Check APK Info
 ```bash
-aapt dump badging ImgShrink.apk
+aapt dump badging fyne-cross/dist/android-arm64/ImgShrink.apk
 ```
 
 ## Release Build
 
-For production release:
-
-1. **Generate a keystore** (first time only):
+### Generate a Keystore (First Time)
 ```bash
 keytool -genkey -v -keystore imgshrink.keystore -alias imgshrink -keyalg RSA -keysize 2048 -validity 10000
 ```
 
-2. **Sign the APK**:
+### Build and Sign with Makefile
 ```bash
-jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 -keystore imgshrink.keystore ImgShrink.apk imgshrink
+make android-release
 ```
 
-3. **Align the APK**:
+### Manual Signing with fyne-cross
 ```bash
-zipalign -v 4 ImgShrink.apk ImgShrink-aligned.apk
+fyne-cross android -arch=arm64,amd64 \
+  -app-id=com.imgshrink.mobile \
+  -release \
+  -keystore imgshrink.keystore \
+  -keyalias imgshrink \
+  -storepass YOUR_PASSWORD \
+  -keypass YOUR_PASSWORD \
+  -icon Icon.png
 ```
 
 ## Build Times

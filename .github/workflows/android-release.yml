@@ -23,6 +23,10 @@ jobs:
     - name: Install fyne-cross
       run: |
         go install github.com/fyne-io/fyne-cross@latest
+        echo "$HOME/go/bin" >> $GITHUB_PATH
+
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v3
 
     - name: Decode keystore
       env:
@@ -30,45 +34,18 @@ jobs:
       run: |
         echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
 
-    - name: Build APK with fyne-cross
-      run: |
-        fyne-cross android -arch=arm64,amd64 -app-id=com.imgshrink.mobile -release
-
-    - name: Sign APK
+    - name: Build and Sign APK with fyne-cross
       env:
         KEYSTORE_PASSWORD: ${{ secrets.PLAY_KEYSTORE_PASSWORD }}
         KEY_ALIAS: ${{ secrets.PLAY_KEY_ALIAS }}
       run: |
-        # Install Android SDK build tools
-        sudo apt-get update
-        sudo apt-get install -y zipalign apksigner
-        
-        # Sign the APK for each architecture
-        for arch in arm64 amd64; do
-          APK_PATH="fyne-cross/dist/android-${arch}/ImgShrink.apk"
-          SIGNED_APK="fyne-cross/dist/android-${arch}/ImgShrink-signed.apk"
-          ALIGNED_APK="fyne-cross/dist/android-${arch}/ImgShrink-aligned.apk"
-          
-          if [ -f "$APK_PATH" ]; then
-            echo "Processing ${arch} APK..."
-            
-            # Align the APK
-            zipalign -v -p 4 "$APK_PATH" "$ALIGNED_APK"
-            
-            # Sign the aligned APK
-            apksigner sign --ks release.keystore \
-              --ks-key-alias "$KEY_ALIAS" \
-              --ks-pass pass:"$KEYSTORE_PASSWORD" \
-              --key-pass pass:"$KEYSTORE_PASSWORD" \
-              --out "$SIGNED_APK" \
-              "$ALIGNED_APK"
-            
-            # Verify signature
-            apksigner verify "$SIGNED_APK"
-            
-            echo "✓ Signed ${arch} APK: $SIGNED_APK"
-          fi
-        done
+        fyne-cross android -arch=arm64,amd64 \
+          -app-id=com.imgshrink.mobile \
+          -release \
+          -keystore release.keystore \
+          -keyalias "$KEY_ALIAS" \
+          -keypass "$KEYSTORE_PASSWORD" \
+          -storepass "$KEYSTORE_PASSWORD"
 
     - name: Get version
       id: version
@@ -115,7 +92,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./fyne-cross/dist/android-arm64/ImgShrink-signed.apk
+        asset_path: ./fyne-cross/dist/android-arm64/ImgShrink.apk
         asset_name: ImgShrink-arm64-${{ steps.version.outputs.version }}.apk
         asset_content_type: application/vnd.android.package-archive
 
@@ -125,7 +102,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./fyne-cross/dist/android-amd64/ImgShrink-signed.apk
+        asset_path: ./fyne-cross/dist/android-amd64/ImgShrink.apk
         asset_name: ImgShrink-x64-${{ steps.version.outputs.version }}.apk
         asset_content_type: application/vnd.android.package-archive
 
@@ -134,6 +111,6 @@ jobs:
       with:
         name: android-apks
         path: |
-          fyne-cross/dist/android-arm64/ImgShrink-signed.apk
-          fyne-cross/dist/android-amd64/ImgShrink-signed.apk
+          fyne-cross/dist/android-arm64/ImgShrink.apk
+          fyne-cross/dist/android-amd64/ImgShrink.apk
         retention-days: 30
