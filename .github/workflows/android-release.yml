@@ -1,0 +1,139 @@
+name: Android Release
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+
+    - name: Install fyne-cross
+      run: |
+        go install github.com/fyne-io/fyne-cross@latest
+
+    - name: Decode keystore
+      env:
+        KEYSTORE_BASE64: ${{ secrets.PLAY_KEYSTORE_BASE64 }}
+      run: |
+        echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+
+    - name: Build APK with fyne-cross
+      run: |
+        fyne-cross android -arch=arm64,amd64 -app-id=com.imgshrink.mobile -release
+
+    - name: Sign APK
+      env:
+        KEYSTORE_PASSWORD: ${{ secrets.PLAY_KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.PLAY_KEY_ALIAS }}
+      run: |
+        # Install Android SDK build tools
+        sudo apt-get update
+        sudo apt-get install -y zipalign apksigner
+        
+        # Sign the APK for each architecture
+        for arch in arm64 amd64; do
+          APK_PATH="fyne-cross/dist/android-${arch}/ImgShrink.apk"
+          SIGNED_APK="fyne-cross/dist/android-${arch}/ImgShrink-signed.apk"
+          ALIGNED_APK="fyne-cross/dist/android-${arch}/ImgShrink-aligned.apk"
+          
+          if [ -f "$APK_PATH" ]; then
+            echo "Processing ${arch} APK..."
+            
+            # Align the APK
+            zipalign -v -p 4 "$APK_PATH" "$ALIGNED_APK"
+            
+            # Sign the aligned APK
+            apksigner sign --ks release.keystore \
+              --ks-key-alias "$KEY_ALIAS" \
+              --ks-pass pass:"$KEYSTORE_PASSWORD" \
+              --key-pass pass:"$KEYSTORE_PASSWORD" \
+              --out "$SIGNED_APK" \
+              "$ALIGNED_APK"
+            
+            # Verify signature
+            apksigner verify "$SIGNED_APK"
+            
+            echo "✓ Signed ${arch} APK: $SIGNED_APK"
+          fi
+        done
+
+    - name: Get version
+      id: version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        else
+          echo "version=dev-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.version.outputs.version }}
+        release_name: ImgShrink Mobile ${{ steps.version.outputs.version }}
+        draft: false
+        prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        body: |
+          ## ImgShrink Mobile - Android Release
+          
+          ### Features
+          - 🖼️ Compress JPEG and PNG images
+          - 📱 Native Android file picker
+          - 🎨 Minimal pitch black glassy UI with moonish blue tints
+          - ⚙️ Adjustable quality and compression settings
+          - 💾 Choose save location
+          - 📊 Real-time compression preview
+          
+          ### Supported Architectures
+          - ARM64 (arm64-v8a)
+          - x86_64 (x86_64)
+          
+          ### Installation
+          Download the APK for your device architecture and install.
+          
+          **Note:** You may need to enable "Install from Unknown Sources" in your Android settings.
+
+    - name: Upload ARM64 APK
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./fyne-cross/dist/android-arm64/ImgShrink-signed.apk
+        asset_name: ImgShrink-arm64-${{ steps.version.outputs.version }}.apk
+        asset_content_type: application/vnd.android.package-archive
+
+    - name: Upload x64 APK
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./fyne-cross/dist/android-amd64/ImgShrink-signed.apk
+        asset_name: ImgShrink-x64-${{ steps.version.outputs.version }}.apk
+        asset_content_type: application/vnd.android.package-archive
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-apks
+        path: |
+          fyne-cross/dist/android-arm64/ImgShrink-signed.apk
+          fyne-cross/dist/android-amd64/ImgShrink-signed.apk
+        retention-days: 30

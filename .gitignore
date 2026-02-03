@@ -40,3 +40,11 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.log
+
+# Keystore files (sensitive)
+*.keystore
+keystore_base64.txt
+release.keystore
+
+# Clipboard temp files
+wl_clipboard

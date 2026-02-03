@@ -6,14 +6,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -73,7 +72,7 @@ func (g glassyTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
 func (g glassyTheme) Size(name fyne.ThemeSizeName) float32 {
 	switch name {
 	case theme.SizeNamePadding:
-		return 4
+		return 6
 	case theme.SizeNameInlineIcon:
 		return 20
 	case theme.SizeNameScrollBar:
@@ -87,25 +86,29 @@ func (g glassyTheme) Size(name fyne.ThemeSizeName) float32 {
 
 // App state
 type ImgShrinkApp struct {
-	window         fyne.Window
-	selectedFile   string
-	outputURI      fyne.URI
-	imagePreview   *canvas.Image
-	fileLabel      *widget.Label
-	sizeLabel      *widget.Label
-	qualitySlider  *widget.Slider
-	qualityLabel   *widget.Label
-	resizeSlider   *widget.Slider
-	resizeLabel    *widget.Label
-	widthEntry     *widget.Entry
-	heightEntry    *widget.Entry
-	resizeMode     *widget.RadioGroup
-	outputLabel    *widget.Label
-	progressBar    *widget.ProgressBar
-	statusLabel    *widget.Label
-	compressBtn    *widget.Button
-	jpegCompressor *compressor.JPEGCompressor
-	pngCompressor  *compressor.PNGCompressor
+	window              fyne.Window
+	selectedFile        string
+	outputDirURI        fyne.URI
+	outputFilename      string
+	outputExt           string
+	outputFilenameEntry *widget.Entry
+	outputExtGroup      *widget.RadioGroup
+	imagePreview        *canvas.Image
+	fileLabel           *widget.Label
+	sizeLabel           *widget.Label
+	qualitySlider       *widget.Slider
+	qualityLabel        *widget.Label
+	resizeSlider        *widget.Slider
+	resizeLabel         *widget.Label
+	widthEntry          *widget.Entry
+	heightEntry         *widget.Entry
+	resizeMode          *widget.RadioGroup
+	outputLabel         *widget.Label
+	progressBar         *widget.ProgressBar
+	statusLabel         *widget.Label
+	compressBtn         *widget.Button
+	jpegCompressor      *compressor.JPEGCompressor
+	pngCompressor       *compressor.PNGCompressor
 }
 
 func main() {
@@ -113,7 +116,9 @@ func main() {
 	a.Settings().SetTheme(&glassyTheme{})
 
 	w := a.NewWindow("ImgShrink")
-	w.Resize(fyne.NewSize(400, 650))
+
+	// Set initial size, will be adjusted by makeUI based on screen
+	w.Resize(fyne.NewSize(400, 800))
 
 	imgApp := &ImgShrinkApp{
 		window:         w,
@@ -126,31 +131,31 @@ func main() {
 }
 
 func (app *ImgShrinkApp) makeUI() fyne.CanvasObject {
-	// Compact header
+	// Header - compact
 	title := widget.NewLabelWithStyle("ImgShrink", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 
-	// Compact image preview
+	// Image preview - takes 50% of screen space
 	app.imagePreview = canvas.NewImageFromResource(theme.FileImageIcon())
 	app.imagePreview.FillMode = canvas.ImageFillContain
-	app.imagePreview.SetMinSize(fyne.NewSize(200, 150))
+	app.imagePreview.SetMinSize(fyne.NewSize(360, 360))
 
 	previewCard := container.NewStack(
 		canvas.NewRectangle(surfaceColor),
 		container.NewPadded(app.imagePreview),
 	)
 
-	// Compact file info
+	// File info - single line compact
 	app.fileLabel = widget.NewLabel("No image selected")
 	app.fileLabel.Wrapping = fyne.TextTruncate
 	app.sizeLabel = widget.NewLabel("")
 
-	// Select button
+	// Select button - directly opens file picker
 	selectBtn := widget.NewButton("Select Image", func() {
 		app.selectImage()
 	})
 	selectBtn.Importance = widget.HighImportance
 
-	// Compact quality slider
+	// Quality slider - compact
 	app.qualityLabel = widget.NewLabel("Quality: 85%")
 	app.qualitySlider = widget.NewSlider(1, 100)
 	app.qualitySlider.Value = 85
@@ -159,7 +164,7 @@ func (app *ImgShrinkApp) makeUI() fyne.CanvasObject {
 		app.qualityLabel.SetText(fmt.Sprintf("Quality: %.0f%%", value))
 	}
 
-	// Compact resize controls
+	// Resize controls - compact
 	app.resizeLabel = widget.NewLabel("Resize: 100%")
 	app.resizeSlider = widget.NewSlider(10, 100)
 	app.resizeSlider.Value = 100
@@ -196,35 +201,43 @@ func (app *ImgShrinkApp) makeUI() fyne.CanvasObject {
 	app.resizeMode.Horizontal = true
 	app.resizeMode.SetSelected("None")
 
-	// Output location
-	app.outputLabel = widget.NewLabel("Output: Choose location")
-	app.outputLabel.Wrapping = fyne.TextTruncate
+	// Output controls - minimal design
+	app.outputFilenameEntry = widget.NewEntry()
+	app.outputFilenameEntry.SetPlaceHolder("filename")
 
-	selectOutputBtn := widget.NewButton("Output Location", func() {
-		app.selectOutputLocation()
+	app.outputExtGroup = widget.NewRadioGroup([]string{".jpg", ".jpeg", ".png"}, func(value string) {
+		app.outputExt = value
 	})
+	app.outputExtGroup.Horizontal = true
+	app.outputExtGroup.SetSelected(".jpg")
+	app.outputExt = ".jpg"
 
-	// Compact controls card
+	// Compact controls card with proper margins
 	controlsCard := container.NewStack(
 		canvas.NewRectangle(surfaceColor),
 		container.NewPadded(
 			container.NewVBox(
-				app.qualityLabel,
+				widget.NewLabel("Quality"),
 				app.qualitySlider,
-				container.NewGridWithColumns(3,
-					widget.NewLabel("Resize:"),
-					app.resizeMode,
-				),
-				app.resizeLabel,
+				app.qualityLabel,
+
+				widget.NewSeparator(),
+
+				widget.NewLabel("Resize"),
+				app.resizeMode,
 				app.resizeSlider,
+				app.resizeLabel,
 				container.NewGridWithColumns(2, app.widthEntry, app.heightEntry),
-				selectOutputBtn,
-				app.outputLabel,
+
+				widget.NewSeparator(),
+
+				widget.NewLabel("Output Format"),
+				app.outputExtGroup,
 			),
 		),
 	)
 
-	// Compress button
+	// Compress button - full width and much larger
 	app.compressBtn = widget.NewButton("Compress Image", func() {
 		app.compressImage()
 	})
@@ -238,24 +251,38 @@ func (app *ImgShrinkApp) makeUI() fyne.CanvasObject {
 	app.statusLabel = widget.NewLabel("")
 	app.statusLabel.Wrapping = fyne.TextWrapWord
 	app.statusLabel.Alignment = fyne.TextAlignCenter
+	app.statusLabel.Hide() // Hide by default, only show in dialogs
 
-	// Compact main layout - no scrolling needed
-	content := container.NewVBox(
-		title,
-		previewCard,
-		app.fileLabel,
-		app.sizeLabel,
-		selectBtn,
-		controlsCard,
-		app.compressBtn,
-		app.progressBar,
-		app.statusLabel,
+	// Create a large button with spacer to make it bigger
+	btnSpacer := canvas.NewRectangle(color.Transparent)
+	btnSpacer.SetMinSize(fyne.NewSize(0, 80))
+	largeBtn := container.NewStack(
+		btnSpacer,
+		container.NewPadded(
+			container.NewPadded(app.compressBtn),
+		),
 	)
 
-	return container.NewPadded(content)
+	// Main layout with proper spacing - no scroll needed
+	content := container.NewVBox(
+		title,
+		widget.NewSeparator(),
+		previewCard,
+		widget.NewSeparator(),
+		container.NewGridWithColumns(2, app.fileLabel, app.sizeLabel),
+		selectBtn,
+		widget.NewSeparator(),
+		controlsCard,
+		widget.NewSeparator(),
+		largeBtn,
+		app.progressBar,
+	)
+
+	return content
 }
 
 func (app *ImgShrinkApp) selectImage() {
+	// Directly open file picker
 	dialog.ShowFileOpen(func(reader fyne.URIReadCloser, err error) {
 		if err != nil {
 			dialog.ShowError(err, app.window)
@@ -264,113 +291,101 @@ func (app *ImgShrinkApp) selectImage() {
 		if reader == nil {
 			return
 		}
-
-		uri := reader.URI()
-
-		// Get file extension from URI
-		uriStr := uri.String()
-		ext := filepath.Ext(uriStr)
-
-		// Create temp file path first
-		tmpDir := os.TempDir()
-		tmpPath := filepath.Join(tmpDir, "imgshrink_temp"+ext)
-
-		// Write data to temp file directly from reader
-		tmpF, err := os.Create(tmpPath)
-		if err != nil {
-			reader.Close()
-			dialog.ShowError(fmt.Errorf("failed to create temp file: %w", err), app.window)
-			return
-		}
-
-		_, err = io.Copy(tmpF, reader)
-		tmpF.Close()
-		reader.Close()
-
-		if err != nil {
-			os.Remove(tmpPath)
-			dialog.ShowError(fmt.Errorf("failed to write temp file: %w", err), app.window)
-			return
-		}
-
-		// Detect extension from content if not available
-		if ext == "" {
-			fileData, err := os.ReadFile(tmpPath)
-			if err == nil && len(fileData) > 7 {
-				// Check for JPEG magic bytes
-				if fileData[0] == 0xFF && fileData[1] == 0xD8 {
-					ext = ".jpg"
-					newPath := filepath.Join(tmpDir, "imgshrink_temp.jpg")
-					os.Rename(tmpPath, newPath)
-					tmpPath = newPath
-				} else if fileData[0] == 0x89 && fileData[1] == 0x50 &&
-					fileData[2] == 0x4E && fileData[3] == 0x47 {
-					ext = ".png"
-					newPath := filepath.Join(tmpDir, "imgshrink_temp.png")
-					os.Rename(tmpPath, newPath)
-					tmpPath = newPath
-				}
-			}
-		}
-
-		if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
-			os.Remove(tmpPath)
-			dialog.ShowError(fmt.Errorf("unsupported file type. Please select a JPEG or PNG image"), app.window)
-			return
-		}
-
-		// Validate image format
-		format, err := compressor.GetImageFormat(tmpPath)
-		if err != nil {
-			os.Remove(tmpPath)
-			dialog.ShowError(fmt.Errorf("unsupported image format"), app.window)
-			return
-		}
-
-		// Get image info
-		info, err := compressor.GetImageInfo(tmpPath)
-		if err != nil {
-			os.Remove(tmpPath)
-			dialog.ShowError(err, app.window)
-			return
-		}
-
-		// Update UI
-		app.selectedFile = tmpPath
-		app.fileLabel.SetText(uri.Name())
-		app.sizeLabel.SetText(fmt.Sprintf("%s • %dx%d • %s",
-			compressor.FormatBytes(info.Size),
-			info.Width,
-			info.Height,
-			format,
-		))
-
-		// Load preview from temp file
-		app.imagePreview.File = tmpPath
-		app.imagePreview.Resource = nil
-		app.imagePreview.Refresh()
-
-		app.compressBtn.Enable()
-		app.statusLabel.SetText("")
-
+		app.handleImageFile(reader)
 	}, app.window)
 }
 
-func (app *ImgShrinkApp) selectOutputLocation() {
-	// Use file save dialog to let user choose where to save
-	dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
-		if err != nil {
-			dialog.ShowError(err, app.window)
-			return
-		}
-		if writer == nil {
-			return
-		}
-		writer.Close()
+func (app *ImgShrinkApp) handleImageFile(reader fyne.URIReadCloser) {
+	uri := reader.URI()
 
-		app.outputURI = writer.URI()
-		app.outputLabel.SetText(fmt.Sprintf("Output: %s", writer.URI().Name()))
-	}, app.window)
+	// Get file extension from URI
+	uriStr := uri.String()
+	ext := filepath.Ext(uriStr)
+
+	// Create temp file path first
+	tmpDir := os.TempDir()
+	tmpPath := filepath.Join(tmpDir, "imgshrink_temp"+ext)
+
+	// Write data to temp file directly from reader
+	tmpF, err := os.Create(tmpPath)
+	if err != nil {
+		reader.Close()
+		dialog.ShowError(fmt.Errorf("failed to create temp file: %w", err), app.window)
+		return
+	}
+
+	_, err = io.Copy(tmpF, reader)
+	tmpF.Close()
+	reader.Close()
+
+	if err != nil {
+		os.Remove(tmpPath)
+		dialog.ShowError(fmt.Errorf("failed to write temp file: %w", err), app.window)
+		return
+	}
+
+	// Detect extension from content if not available
+	if ext == "" {
+		fileData, err := os.ReadFile(tmpPath)
+		if err == nil && len(fileData) > 7 {
+			// Check for JPEG magic bytes
+			if fileData[0] == 0xFF && fileData[1] == 0xD8 {
+				ext = ".jpg"
+				newPath := filepath.Join(tmpDir, "imgshrink_temp.jpg")
+				os.Rename(tmpPath, newPath)
+				tmpPath = newPath
+			} else if fileData[0] == 0x89 && fileData[1] == 0x50 &&
+				fileData[2] == 0x4E && fileData[3] == 0x47 {
+				ext = ".png"
+				newPath := filepath.Join(tmpDir, "imgshrink_temp.png")
+				os.Rename(tmpPath, newPath)
+				tmpPath = newPath
+			} else if fileData[0] == 0x42 && fileData[1] == 0x4D {
+				ext = ".bmp"
+				newPath := filepath.Join(tmpDir, "imgshrink_temp.bmp")
+				os.Rename(tmpPath, newPath)
+				tmpPath = newPath
+			} else if len(fileData) > 12 && fileData[0] == 0x00 && fileData[1] == 0x00 {
+				// WEBP or other formats
+				ext = ".webp"
+				newPath := filepath.Join(tmpDir, "imgshrink_temp.webp")
+				os.Rename(tmpPath, newPath)
+				tmpPath = newPath
+			}
+		}
+	}
+
+	// Get image info first
+	info, err := compressor.GetImageInfo(tmpPath)
+	if err != nil {
+		os.Remove(tmpPath)
+		dialog.ShowError(fmt.Errorf("unsupported image format"), app.window)
+		return
+	}
+
+	// Try to get format from compressor, fallback to extension
+	format, err := compressor.GetImageFormat(tmpPath)
+	if err != nil {
+		// Image is valid but compressor doesn't support it, use generic format
+		format = compressor.ImageFormat(strings.TrimPrefix(ext, "."))
+	}
+
+	// Update UI
+	app.selectedFile = tmpPath
+	app.fileLabel.SetText(uri.Name())
+	app.sizeLabel.SetText(fmt.Sprintf("%s • %dx%d • %s",
+		compressor.FormatBytes(info.Size),
+		info.Width,
+		info.Height,
+		format,
+	))
+
+	// Load preview from temp file
+	app.imagePreview.File = tmpPath
+	app.imagePreview.Resource = nil
+	app.imagePreview.Refresh()
+
+	app.compressBtn.Enable()
 }
 
 func (app *ImgShrinkApp) compressImage() {
@@ -380,7 +395,6 @@ func (app *ImgShrinkApp) compressImage() {
 
 	app.compressBtn.Disable()
 	app.progressBar.Show()
-	app.statusLabel.SetText("Compressing...")
 
 	go func() {
 		// Get compression options
@@ -427,57 +441,76 @@ func (app *ImgShrinkApp) compressImage() {
 
 		// Update UI on main thread
 		if err != nil || !result.Success {
-			app.statusLabel.SetText(fmt.Sprintf("❌ Error: %v", err))
 			app.progressBar.Hide()
 			app.compressBtn.Enable()
+			dialog.ShowError(fmt.Errorf("compression failed: %v", err), app.window)
 			return
 		}
 
-		// If user selected output location, copy file there
-		var finalPath string
-		if app.outputURI != nil {
-			// On Android, write to user-selected URI
-			if runtime.GOOS == "android" {
-				writer, err := storage.Writer(app.outputURI)
-				if err == nil {
-					compressedData, err := os.ReadFile(result.OutputPath)
-					if err == nil {
-						_, err = writer.Write(compressedData)
-						writer.Close()
-						if err == nil {
-							finalPath = app.outputURI.String()
-						}
-					}
-				}
-			} else {
-				// On desktop, use the URI path directly
-				finalPath = app.outputURI.Path()
-				os.Rename(result.OutputPath, finalPath)
+		// Get output extension
+		ext := app.outputExt
+		if ext == "" {
+			ext = ".jpg"
+		}
+
+		// Determine output filename - use original name if not specified
+		outputFilename := "compressed" + ext
+		if app.selectedFile != "" {
+			baseName := filepath.Base(app.selectedFile)
+			baseName = strings.TrimSuffix(baseName, filepath.Ext(baseName))
+			outputFilename = baseName + "_compressed" + ext
+		}
+
+		// Read compressed data
+		compressedData, err := os.ReadFile(result.OutputPath)
+		if err != nil {
+			app.progressBar.Hide()
+			app.compressBtn.Enable()
+			dialog.ShowError(fmt.Errorf("failed to read compressed file: %v", err), app.window)
+			return
+		}
+
+		// Always use file save dialog to let user choose location
+		saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+			if err != nil {
+				app.progressBar.Hide()
+				app.compressBtn.Enable()
+				dialog.ShowError(err, app.window)
+				return
 			}
-		} else {
-			finalPath = result.OutputPath
-		}
+			if writer == nil {
+				app.progressBar.Hide()
+				app.compressBtn.Enable()
+				return
+			}
 
-		if finalPath == "" {
-			finalPath = result.OutputPath
-		}
+			_, err = writer.Write(compressedData)
+			writer.Close()
 
-		successMsg := fmt.Sprintf("✓ Success!\n"+
-			"%s → %s\n"+
-			"Saved: %s (%.1f%%)\n"+
-			"Location: %s",
-			compressor.FormatBytes(result.InputSize),
-			compressor.FormatBytes(result.OutputSize),
-			compressor.FormatBytes(result.InputSize-result.OutputSize),
-			result.Reduction,
-			filepath.Base(finalPath),
-		)
+			if err != nil {
+				app.progressBar.Hide()
+				app.compressBtn.Enable()
+				dialog.ShowError(fmt.Errorf("failed to write file: %v", err), app.window)
+				return
+			}
 
-		app.statusLabel.SetText(successMsg)
-		app.progressBar.Hide()
-		app.compressBtn.Enable()
+			// Show success
+			successMsg := fmt.Sprintf("✓ Compression Successful!\n\n"+
+				"Original: %s\n"+
+				"Compressed: %s\n"+
+				"Saved: %s (%.1f%% reduction)",
+				compressor.FormatBytes(result.InputSize),
+				compressor.FormatBytes(result.OutputSize),
+				compressor.FormatBytes(result.InputSize-result.OutputSize),
+				result.Reduction,
+			)
 
-		// Show success dialog
-		dialog.ShowInformation("Success", successMsg, app.window)
+			app.progressBar.Hide()
+			app.compressBtn.Enable()
+			dialog.ShowInformation("Success", successMsg, app.window)
+		}, app.window)
+
+		saveDialog.SetFileName(outputFilename)
+		saveDialog.Show()
 	}()
 }
